@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from model import MNISTNet
 from tqdm import tqdm
 import logging
+from state import model_plots, training_status
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,20 @@ def get_optimizer(name, parameters, lr):
     else:
         raise ValueError(f"Unsupported optimizer: {name}")
 
-def start_training(config, training_status):
+def start_training(config, training_status, model_name):
     try:
-        logger.info("Starting training with config:", config)
+        logger.info(f"Starting training for model: {model_name}")
+        
+        # Initialize model data in model_plots
+        model_plots[model_name] = {
+            'train_loss': [], 
+            'val_loss': [], 
+            'train_acc': [], 
+            'val_acc': [], 
+            'epochs': [], 
+            'config': config,
+            'status': 'running'
+        }
         
         # Data preparation
         transform = transforms.Compose([
@@ -46,15 +58,7 @@ def start_training(config, training_status):
         criterion = nn.CrossEntropyLoss()
         optimizer = get_optimizer(config['optimizer'], model.parameters(), config['learning_rate'])
 
-        # Training logs
-        training_logs = {
-            'train_loss': [], 'val_loss': [], 
-            'train_acc': [], 'val_acc': [], 
-            'epochs': []
-        }
-
         for epoch in range(config['epochs']):
-            # Training
             model.train()
             train_loss = 0
             correct = 0
@@ -63,7 +67,6 @@ def start_training(config, training_status):
             pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{config["epochs"]} [Train]')
             for data, target in pbar:
                 data, target = data.to(device), target.to(device)
-                
                 optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
@@ -75,7 +78,6 @@ def start_training(config, training_status):
                 total += target.size(0)
                 correct += (predicted == target).sum().item()
                 
-                # Update progress bar
                 pbar.set_postfix({
                     'loss': f'{loss.item():.4f}',
                     'acc': f'{100. * correct/total:.2f}%'
@@ -102,23 +104,31 @@ def start_training(config, training_status):
             val_accuracy = 100. * correct / total
             avg_val_loss = val_loss / len(test_loader)
             
-            # Update logs
-            training_logs['train_loss'].append(avg_train_loss)
-            training_logs['val_loss'].append(avg_val_loss)
-            training_logs['train_acc'].append(train_accuracy)
-            training_logs['val_acc'].append(val_accuracy)
-            training_logs['epochs'].append(epoch)
+            # Update model plots
+            model_plots[model_name]['train_loss'].append(avg_train_loss)
+            model_plots[model_name]['val_loss'].append(avg_val_loss)
+            model_plots[model_name]['train_acc'].append(train_accuracy)
+            model_plots[model_name]['val_acc'].append(val_accuracy)
+            model_plots[model_name]['epochs'].append(epoch)
             
-            # Save logs
+            # Save training logs after each epoch
             with open('training_logs.json', 'w') as f:
-                json.dump(training_logs, f)
+                json.dump(model_plots, f)
             
             logger.info(f"Epoch {epoch+1} completed - Train Acc: {train_accuracy:.2f}%, Val Acc: {val_accuracy:.2f}%")
         
+        # Update status when training completes
+        model_plots[model_name]['status'] = 'completed'
         training_status['status'] = 'completed'
         logger.info("Training completed successfully")
         
+        # Final save of training logs
+        with open('training_logs.json', 'w') as f:
+            json.dump(model_plots, f)
+            
     except Exception as e:
         logger.error(f"Training error: {str(e)}")
         training_status['status'] = 'error'
-        training_status['error'] = str(e) 
+        training_status['error'] = str(e)
+        if model_name in model_plots:
+            model_plots[model_name]['status'] = 'error'

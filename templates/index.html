@@ -93,17 +93,18 @@
         
         .progress-bar {
             height: 20px;
-            background: #e9ecef;
+            background: #f0f0f0;
             border-radius: 10px;
             overflow: hidden;
             margin: 10px 0;
+            border: 1px solid #ddd;
         }
         
         .progress-fill {
             height: 100%;
-            background: #007bff;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
             width: 0%;
-            transition: width 0.5s ease;
+            transition: width 0.5s ease-in-out;
         }
         
         .progress-stats {
@@ -111,6 +112,7 @@
             justify-content: space-between;
             color: #666;
             font-size: 0.9em;
+            margin-top: 5px;
         }
         
         #plots {
@@ -183,6 +185,17 @@
         .model-card:hover {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        
+        .clear-button {
+            background: #6c757d;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+        }
+        .clear-button:hover {
+            background: #5a6268;
+        }
     </style>
 </head>
 <body>
@@ -243,7 +256,10 @@
                 </div>
             </form>
             <div class="model-history">
-                <h2>Recent Models</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2>Recent Models</h2>
+                    <button id="clearHistoryButton" class="clear-button">Clear History</button>
+                </div>
                 <div id="model-list">
                     <!-- Model history will be populated here -->
                 </div>
@@ -273,7 +289,8 @@
     <script>
         let startTime;
         let trainingActive = false;
-        
+        let monitoringInterval = null;
+
         function formatModelCard(config) {
             return `
                 <div class="model-card">
@@ -296,7 +313,214 @@
                 })
                 .catch(error => console.error('Error fetching model history:', error));
         }
-        
+
+        function resetButtons() {
+            document.getElementById('startButton').style.display = 'block';
+            document.getElementById('stopButton').style.display = 'none';
+            trainingActive = false;
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+            }
+        }
+
+        function updateStatus(status, message = '') {
+            const statusBadge = document.getElementById('training-status');
+            statusBadge.className = 'status-badge status-' + status;
+            
+            switch(status) {
+                case 'running':
+                    statusBadge.textContent = 'Training';
+                    break;
+                case 'completed':
+                    statusBadge.textContent = 'Completed';
+                    resetButtons();
+                    break;
+                case 'error':
+                    statusBadge.textContent = message || 'Error';
+                    resetButtons();
+                    break;
+            }
+        }
+
+        function updateProgress(currentEpoch, totalEpochs, accuracy) {
+            const progressFill = document.getElementById('progress-fill');
+            const epochInfo = document.getElementById('epoch-info');
+            const timeElapsed = document.getElementById('time-elapsed');
+            const accuracyInfo = document.getElementById('accuracy-info');
+            
+            // Calculate progress percentage (subtract 1 from currentEpoch since epochs start from 0)
+            const progress = ((currentEpoch + 1) / totalEpochs) * 100;
+            
+            // Update progress bar
+            progressFill.style.width = `${progress}%`;
+            progressFill.style.transition = 'width 0.5s ease-in-out';
+            
+            // Update epoch info
+            epochInfo.textContent = `Epoch: ${currentEpoch + 1}/${totalEpochs}`;
+            
+            // Update time elapsed
+            if (startTime) {
+                const elapsed = Math.floor((new Date() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                timeElapsed.textContent = `Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+            
+            // Update accuracy info
+            accuracyInfo.textContent = `Accuracy: ${accuracy.toFixed(2)}%`;
+        }
+
+        function updatePlots(data) {
+            if (!data.models || data.models.length === 0) {
+                console.log('No data available for plotting');
+                return;
+            }
+
+            const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
+            const lossTraces = [];
+            const accTraces = [];
+            
+            // Find min and max accuracy for dynamic range
+            let minAcc = 100;
+            let maxAcc = 0;
+            
+            data.models.forEach((modelData) => {
+                const modelInfo = modelData[1];
+                const accs = modelInfo.train_acc;
+                if (accs && accs.length > 0) {
+                    minAcc = Math.min(minAcc, Math.min(...accs));
+                    maxAcc = Math.max(maxAcc, Math.max(...accs));
+                }
+            });
+            
+            // Add padding to accuracy range
+            minAcc = Math.max(0, Math.floor(minAcc) - 2);
+            maxAcc = Math.min(100, Math.ceil(maxAcc) + 2);
+            
+            data.models.forEach((modelData, index) => {
+                const modelName = modelData[0];
+                const modelInfo = modelData[1];
+                const isCurrentModel = modelName === data.current_model;
+                const color = colors[index % colors.length];
+                
+                // Ensure we're using all available data points
+                const xData = Array.from({length: modelInfo.train_loss.length}, (_, i) => i);
+                
+                lossTraces.push({
+                    x: xData,
+                    y: modelInfo.train_loss,
+                    name: modelName,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: color,
+                        width: isCurrentModel ? 4 : 2
+                    }
+                });
+                
+                accTraces.push({
+                    x: xData,
+                    y: modelInfo.train_acc,
+                    name: modelName,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: color,
+                        width: isCurrentModel ? 4 : 2
+                    }
+                });
+            });
+            
+            // Update plot layouts
+            const layout = {
+                showlegend: true,
+                legend: { orientation: 'h', y: -0.2 },
+                xaxis: { title: 'Epoch', range: [-0.5, data.models[0][1].config.epochs - 0.5] }
+            };
+            
+            Plotly.newPlot('loss-plot', lossTraces, {
+                ...layout,
+                title: 'Training Loss',
+                yaxis: { title: 'Loss' }
+            });
+            
+            Plotly.newPlot('accuracy-plot', accTraces, {
+                ...layout,
+                title: 'Training Accuracy',
+                yaxis: { 
+                    title: 'Accuracy (%)', 
+                    range: [minAcc, maxAcc],
+                    tickformat: '.1f'
+                }
+            });
+        }
+
+        function startMonitoring() {
+            function checkTrainingStatus() {
+                if (!trainingActive) return;
+
+                fetch('/get_training_stats')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) throw new Error(data.error);
+                        
+                        updatePlots(data);
+                        
+                        if (data.current_model && data.models) {
+                            const currentModelData = data.models.find(([name]) => name === data.current_model);
+                            if (currentModelData) {
+                                const modelInfo = currentModelData[1];
+                                const epochs = modelInfo.epochs || [];
+                                const totalEpochs = modelInfo.config.epochs;
+                                
+                                // Calculate current epoch, ensuring we count completed epochs
+                                let currentEpoch = epochs.length;
+                                
+                                // If training is completed, ensure we show the last epoch
+                                if (data.status === 'completed' || modelInfo.status === 'completed') {
+                                    currentEpoch = totalEpochs;
+                                }
+                                
+                                const latestAccuracy = modelInfo.train_acc[modelInfo.train_acc.length - 1] || 0;
+                                
+                                // Calculate progress including the current epoch
+                                const progress = (currentEpoch / totalEpochs) * 100;
+                                
+                                // Update progress elements
+                                document.getElementById('progress-fill').style.width = `${progress}%`;
+                                document.getElementById('epoch-info').textContent = 
+                                    `Epoch: ${currentEpoch}/${totalEpochs}`;
+                                document.getElementById('accuracy-info').textContent = 
+                                    `Accuracy: ${latestAccuracy.toFixed(2)}%`;
+                            }
+                        }
+                        
+                        if (data.status === 'completed') {
+                            updateStatus('completed');
+                            resetButtons();
+                            // Do one final check after a short delay to ensure we get the last epoch
+                            setTimeout(() => {
+                                checkTrainingStatus();
+                                clearInterval(monitoringInterval);
+                            }, 500);
+                        } else if (data.status === 'error') {
+                            updateStatus('error', data.error);
+                            resetButtons();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        updateStatus('error', error.message);
+                        resetButtons();
+                    });
+            }
+
+            // Check more frequently for smoother updates
+            monitoringInterval = setInterval(checkTrainingStatus, 500);
+        }
+
+        // Form submit handler
         document.getElementById('training-form').onsubmit = async function(e) {
             e.preventDefault();
             if (trainingActive) return;
@@ -306,8 +530,36 @@
             
             try {
                 const formData = new FormData(this);
-                const config = Object.fromEntries(formData.entries());
-                config.timestamp = new Date().toISOString();  // Add timestamp
+                const config = {
+                    // Convert string values to appropriate types
+                    model_name: formData.get('model_name'),
+                    batch_size: parseInt(formData.get('batch_size')),
+                    learning_rate: parseFloat(formData.get('learning_rate')),
+                    epochs: parseInt(formData.get('epochs')),
+                    num_filters: parseInt(formData.get('num_filters')),
+                    kernel_size: parseInt(formData.get('kernel_size')),
+                    optimizer: formData.get('optimizer'),
+                    pooling: formData.get('pooling'),
+                    activation: formData.get('activation'),
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Validate numeric values
+                if (isNaN(config.batch_size) || config.batch_size <= 0) {
+                    throw new Error('Batch size must be a positive number');
+                }
+                if (isNaN(config.learning_rate) || config.learning_rate <= 0) {
+                    throw new Error('Learning rate must be a positive number');
+                }
+                if (isNaN(config.epochs) || config.epochs <= 0) {
+                    throw new Error('Epochs must be a positive number');
+                }
+                if (isNaN(config.num_filters) || config.num_filters <= 0) {
+                    throw new Error('Number of filters must be a positive number');
+                }
+                if (isNaN(config.kernel_size) || config.kernel_size <= 0) {
+                    throw new Error('Kernel size must be a positive number');
+                }
                 
                 startButton.style.display = 'none';
                 stopButton.style.display = 'block';
@@ -326,7 +578,7 @@
                 
                 if (response.ok) {
                     startMonitoring();
-                    updateModelHistory();  // Update model history after successful start
+                    updateModelHistory();
                 } else {
                     throw new Error(data.error || 'Failed to start training');
                 }
@@ -336,7 +588,8 @@
                 resetButtons();
             }
         };
-        
+
+        // Stop button handler
         document.getElementById('stopButton').onclick = async function() {
             try {
                 const response = await fetch('/stop_training', { method: 'POST' });
@@ -346,138 +599,35 @@
                 }
             } catch (error) {
                 console.error('Error stopping training:', error);
+                updateStatus('error', 'Failed to stop training');
             }
         };
-        
-        function resetButtons() {
-            document.getElementById('startButton').style.display = 'block';
-            document.getElementById('stopButton').style.display = 'none';
-            trainingActive = false;
-        }
-        
-        function updateStatus(status, message = '') {
-            const statusBadge = document.getElementById('training-status');
-            statusBadge.className = 'status-badge status-' + status;
-            
-            switch(status) {
-                case 'running':
-                    statusBadge.textContent = 'Training';
-                    break;
-                case 'completed':
-                    statusBadge.textContent = 'Completed';
-                    resetButtons();
-                    break;
-                case 'error':
-                    statusBadge.textContent = 'Error';
-                    resetButtons();
-                    break;
-            }
-        }
-        
-        function updateProgress(currentEpoch, totalEpochs, accuracy) {
-            const progressFill = document.getElementById('progress-fill');
-            const epochInfo = document.getElementById('epoch-info');
-            const timeElapsed = document.getElementById('time-elapsed');
-            const accuracyInfo = document.getElementById('accuracy-info');
-            
-            // Update progress bar
-            const progress = (currentEpoch / totalEpochs) * 100;
-            progressFill.style.width = `${progress}%`;
-            
-            // Update epoch info
-            epochInfo.textContent = `Epoch: ${currentEpoch}/${totalEpochs}`;
-            
-            // Update time elapsed
-            if (startTime) {
-                const elapsed = Math.floor((new Date() - startTime) / 1000);
-                const minutes = Math.floor(elapsed / 60);
-                const seconds = elapsed % 60;
-                timeElapsed.textContent = `Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
-            }
-            
-            // Update accuracy
-            accuracyInfo.textContent = `Accuracy: ${accuracy.toFixed(2)}%`;
-        }
-        
-        function startMonitoring() {
-            function updatePlots() {
-                if (!trainingActive) return;
-                
-                fetch('/get_training_stats')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.error) throw new Error(data.error);
-                        
-                        // Update progress
-                        if (data.epochs.length > 0) {
-                            const currentEpoch = data.epochs.length;
-                            const totalEpochs = document.querySelector('input[name="epochs"]').value;
-                            const latestAccuracy = data.train_acc[data.train_acc.length - 1] || 0;
-                            updateProgress(currentEpoch, totalEpochs, latestAccuracy);
-                        }
-                        
-                        // Update plots
-                        const traceLoss1 = {
-                            x: data.epochs,
-                            y: data.train_loss,
-                            name: 'Training Loss',
-                            type: 'scatter'
-                        };
-                        const traceLoss2 = {
-                            x: data.epochs,
-                            y: data.val_loss,
-                            name: 'Validation Loss',
-                            type: 'scatter'
-                        };
-                        Plotly.newPlot('loss-plot', [traceLoss1, traceLoss2], {
-                            title: 'Training and Validation Loss',
-                            xaxis: { title: 'Epoch' },
-                            yaxis: { title: 'Loss' }
-                        });
 
-                        const traceAcc1 = {
-                            x: data.epochs,
-                            y: data.train_acc,
-                            name: 'Training Accuracy',
-                            type: 'scatter'
-                        };
-                        const traceAcc2 = {
-                            x: data.epochs,
-                            y: data.val_acc,
-                            name: 'Validation Accuracy',
-                            type: 'scatter'
-                        };
-                        Plotly.newPlot('accuracy-plot', [traceAcc1, traceAcc2], {
-                            title: 'Training and Validation Accuracy',
-                            xaxis: { title: 'Epoch' },
-                            yaxis: { title: 'Accuracy', range: [0, 100] }
-                        });
-                        
-                        if (data.status === 'completed') {
-                            updateStatus('completed');
-                            trainingActive = false;
-                        } else if (data.status === 'error') {
-                            updateStatus('error', data.error);
-                            trainingActive = false;
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        if (trainingActive) {
-                            setTimeout(updatePlots, 2000);
-                        }
-                    });
-            }
-            
-            updatePlots();
-            const intervalId = setInterval(() => {
-                if (trainingActive) {
-                    updatePlots();
-                } else {
-                    clearInterval(intervalId);
+        // Add clear history handler
+        document.getElementById('clearHistoryButton').onclick = async function() {
+            if (confirm('Are you sure you want to clear all training history?')) {
+                try {
+                    const response = await fetch('/clear_history', { method: 'POST' });
+                    if (response.ok) {
+                        // Clear plots
+                        Plotly.purge('loss-plot');
+                        Plotly.purge('accuracy-plot');
+                        // Clear model list
+                        document.getElementById('model-list').innerHTML = '';
+                        // Reset progress
+                        document.getElementById('progress-fill').style.width = '0%';
+                        document.getElementById('epoch-info').textContent = 'Epoch: 0/0';
+                        document.getElementById('accuracy-info').textContent = 'Accuracy: 0%';
+                    }
+                } catch (error) {
+                    console.error('Error clearing history:', error);
                 }
-            }, 2000);
-        }
+            }
+        };
+
+        // Initialize
+        resetButtons();
+        updateModelHistory();
     </script>
 </body>
 </html> 
