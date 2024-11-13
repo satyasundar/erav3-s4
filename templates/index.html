@@ -322,8 +322,16 @@
                     <input type="number" name="epochs" value="10" min="1" max="100">
                 </div>
                 <div class="form-group">
-                    <label>Number of Filters:</label>
-                    <input type="number" name="num_filters" value="32" min="1">
+                    <label>Conv1 Filters:</label>
+                    <input type="number" name="num_filters_1" value="32" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Conv2 Filters:</label>
+                    <input type="number" name="num_filters_2" value="64" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Conv3 Filters:</label>
+                    <input type="number" name="num_filters_3" value="128" min="1">
                 </div>
                 <div class="form-group">
                     <label>Kernel Size:</label>
@@ -403,7 +411,8 @@
                 <div class="model-card">
                     <h3>${config.model_name}</h3>
                     <p>Optimizer: ${config.optimizer} (lr: ${config.learning_rate})</p>
-                    <p>Architecture: ${config.num_filters} filters, ${config.kernel_size}×${config.kernel_size} kernel</p>
+                    <p>Architecture: ${config.num_filters_1}-${config.num_filters_2}-${config.num_filters_3} filters</p>
+                    <p>Kernel: ${config.kernel_size}×${config.kernel_size}</p>
                     <p>Training: ${config.batch_size} batch, ${config.epochs} epochs</p>
                     <p>Activation: ${config.activation}, Pooling: ${config.pooling}</p>
                     <div class="timestamp">${new Date(config.timestamp).toLocaleString()}</div>
@@ -669,7 +678,9 @@
                     batch_size: parseInt(formData.get('batch_size')),
                     learning_rate: parseFloat(formData.get('learning_rate')),
                     epochs: parseInt(formData.get('epochs')),
-                    num_filters: parseInt(formData.get('num_filters')),
+                    num_filters_1: parseInt(formData.get('num_filters_1')),
+                    num_filters_2: parseInt(formData.get('num_filters_2')),
+                    num_filters_3: parseInt(formData.get('num_filters_3')),
                     kernel_size: parseInt(formData.get('kernel_size')),
                     optimizer: formData.get('optimizer'),
                     pooling: formData.get('pooling'),
@@ -687,8 +698,14 @@
                 if (isNaN(config.epochs) || config.epochs <= 0) {
                     throw new Error('Epochs must be a positive number');
                 }
-                if (isNaN(config.num_filters) || config.num_filters <= 0) {
-                    throw new Error('Number of filters must be a positive number');
+                if (isNaN(config.num_filters_1) || config.num_filters_1 <= 0) {
+                    throw new Error('Conv1 filters must be a positive number');
+                }
+                if (isNaN(config.num_filters_2) || config.num_filters_2 <= 0) {
+                    throw new Error('Conv2 filters must be a positive number');
+                }
+                if (isNaN(config.num_filters_3) || config.num_filters_3 <= 0) {
+                    throw new Error('Conv3 filters must be a positive number');
                 }
                 if (isNaN(config.kernel_size) || config.kernel_size <= 0) {
                     throw new Error('Kernel size must be a positive number');
