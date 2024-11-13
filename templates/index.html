@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MNIST Training Monitor</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <h1>MNIST Training Monitor</h1>
+    <div id="loss-plot"></div>
+
+    <script>
+        function updatePlot() {
+            fetch('/get_loss_data')
+                .then(response => response.json())
+                .then(data => {
+                    const trace1 = {
+                        x: data.epochs,
+                        y: data.train_loss,
+                        name: 'Training Loss',
+                        type: 'scatter'
+                    };
+                    
+                    const trace2 = {
+                        x: data.epochs,
+                        y: data.val_loss,
+                        name: 'Validation Loss',
+                        type: 'scatter'
+                    };
+
+                    const layout = {
+                        title: 'Training Progress',
+                        xaxis: { title: 'Epoch' },
+                        yaxis: { title: 'Loss' }
+                    };
+
+                    Plotly.newPlot('loss-plot', [trace1, trace2], layout);
+                });
+        }
+
+        // Update every 5 seconds
+        setInterval(updatePlot, 5000);
+        updatePlot();
+    </script>
+</body>
+</html> 
