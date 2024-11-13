@@ -9,6 +9,7 @@ from model import MNISTNet
 from tqdm import tqdm
 import logging
 from state import model_plots, training_status
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,10 @@ def start_training(config, training_status, model_name):
         # Final save of training logs
         with open('training_logs.json', 'w') as f:
             json.dump(model_plots, f)
+            
+        # Save the model
+        os.makedirs('models', exist_ok=True)
+        torch.save(model.state_dict(), f'models/{model_name}.pth')
             
     except Exception as e:
         logger.error(f"Training error: {str(e)}")

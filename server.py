@@ -4,6 +4,14 @@ import os
 import threading
 from datetime import datetime
 from state import model_plots, training_status, stop_flag
+import torch
+from torchvision import datasets, transforms
+import random
+import base64
+import io
+from PIL import Image
+import numpy as np
+import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
@@ -108,6 +116,113 @@ def clear_history():
         return jsonify({'status': 'History cleared successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/get_predictions/<model_name>')
+def get_predictions(model_name):
+    try:
+        print(f"Getting predictions for model: {model_name}")
+        
+        # Set matplotlib to use non-GUI backend
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        
+        # Check if model file exists
+        model_path = f'models/{model_name}.pth'
+        if not os.path.exists(model_path):
+            print(f"Model file not found: {model_path}")
+            return jsonify({
+                'success': False,
+                'error': f'Model file not found: {model_path}'
+            })
+        
+        # Check if training logs exist
+        if not os.path.exists('training_logs.json'):
+            return jsonify({
+                'success': False,
+                'error': 'Training logs not found'
+            })
+            
+        # Load test dataset
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        test_dataset = datasets.MNIST('./data', train=False, download=True, transform=transform)
+        
+        # Set device
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+        
+        # Get model config
+        with open('training_logs.json', 'r') as f:
+            logs = json.load(f)
+            if model_name not in logs:
+                return jsonify({
+                    'success': False,
+                    'error': f'Model {model_name} not found in training logs'
+                })
+            config = logs[model_name]['config']
+        
+        # Initialize model
+        from model import MNISTNet
+        model = MNISTNet(config)
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.to(device)
+        model.eval()
+        
+        # Randomly select 10 images
+        indices = random.sample(range(len(test_dataset)), 10)
+        images = []
+        labels = []
+        predictions = []
+        
+        # Get predictions
+        for idx in indices:
+            img, label = test_dataset[idx]
+            img = img.to(device)
+            
+            # Get prediction
+            with torch.no_grad():
+                output = model(img.unsqueeze(0))
+                pred = output.argmax(dim=1).item()
+            
+            # Convert tensor to image for display
+            img_display = img.cpu().squeeze().numpy()
+            
+            # Create figure for this image
+            fig = plt.figure(figsize=(2, 2), dpi=100)
+            plt.imshow(img_display, cmap='gray')
+            plt.axis('off')
+            
+            # Convert plot to base64 string
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+            buf.seek(0)
+            img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+            
+            images.append(img_str)
+            labels.append(int(label))
+            predictions.append(pred)
+        
+        print(f"Successfully generated predictions for {len(predictions)} images")
+        
+        return jsonify({
+            'success': True,
+            'images': images,
+            'labels': labels,
+            'predictions': predictions
+        })
+            
+    except Exception as e:
+        print(f"Error in get_predictions: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
 
 if __name__ == '__main__':
     app.run(debug=True) 
