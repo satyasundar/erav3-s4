@@ -11,9 +11,21 @@ import base64
 import io
 from PIL import Image
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import logging
 
+# Configure Flask and Werkzeug logging
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
 app = Flask(__name__)
+app.logger.setLevel(logging.WARNING)
+
+# Disable other loggers
+logging.getLogger('PIL').setLevel(logging.WARNING)
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logging.getLogger('torch').setLevel(logging.WARNING)
+logging.getLogger('torchvision').setLevel(logging.WARNING)
 
 def get_model_plots():
     if os.path.exists('training_logs.json'):

@@ -10,6 +10,22 @@ from tqdm import tqdm
 import logging
 from state import model_plots, training_status
 import os
+import sys
+
+# Configure logging to only show WARNING and above
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(levelname)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stderr)
+    ]
+)
+
+# Disable other loggers that might interfere with tqdm
+logging.getLogger('PIL').setLevel(logging.WARNING)
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logging.getLogger('torch').setLevel(logging.WARNING)
+logging.getLogger('torchvision').setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +41,6 @@ def get_optimizer(name, parameters, lr):
 
 def start_training(config, training_status, model_name):
     try:
-        logger.info(f"Starting training for model: {model_name}")
-        
         # Initialize model data in model_plots
         model_plots[model_name] = {
             'train_loss': [], 
@@ -44,7 +58,8 @@ def start_training(config, training_status, model_name):
             transforms.Normalize((0.1307,), (0.3081,))
         ])
 
-        train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
+        # Disable download progress bar from torchvision
+        train_dataset = datasets.MNIST('./data', train=True, download=False, transform=transform)
         test_dataset = datasets.MNIST('./data', train=False, transform=transform)
 
         train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, drop_last=True)
@@ -52,21 +67,28 @@ def start_training(config, training_status, model_name):
 
         # Initialize device
         device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"Using device: {device}")
         
         # Initialize model with config
         model = MNISTNet(config).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = get_optimizer(config['optimizer'], model.parameters(), config['learning_rate'])
 
-        for epoch in range(config['epochs']):
+        # Create progress bar for epochs
+        epoch_pbar = tqdm(range(config['epochs']), 
+                         desc=f'Training {model_name}', 
+                         file=sys.stdout,
+                         position=0,
+                         leave=True,
+                         ncols=100)  # Fixed width for cleaner display
+
+        for epoch in epoch_pbar:
             model.train()
             train_loss = 0
             correct = 0
             total = 0
             
-            pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{config["epochs"]} [Train]')
-            for data, target in pbar:
+            # Training loop without inner progress bar
+            for data, target in train_loader:
                 data, target = data.to(device), target.to(device)
                 optimizer.zero_grad()
                 output = model(data)
@@ -78,11 +100,6 @@ def start_training(config, training_status, model_name):
                 _, predicted = torch.max(output.data, 1)
                 total += target.size(0)
                 correct += (predicted == target).sum().item()
-                
-                pbar.set_postfix({
-                    'loss': f'{loss.item():.4f}',
-                    'acc': f'{100. * correct/total:.2f}%'
-                })
             
             train_accuracy = 100. * correct / total
             avg_train_loss = train_loss / len(train_loader)
@@ -116,12 +133,15 @@ def start_training(config, training_status, model_name):
             with open('training_logs.json', 'w') as f:
                 json.dump(model_plots, f)
             
-            logger.info(f"Epoch {epoch+1} completed - Train Acc: {train_accuracy:.2f}%, Val Acc: {val_accuracy:.2f}%")
+            # Update progress bar description
+            epoch_pbar.set_postfix({
+                'loss': f'{avg_train_loss:.4f}',
+                'acc': f'{train_accuracy:.2f}%'
+            })
         
         # Update status when training completes
         model_plots[model_name]['status'] = 'completed'
         training_status['status'] = 'completed'
-        logger.info("Training completed successfully")
         
         # Final save of training logs
         with open('training_logs.json', 'w') as f:
