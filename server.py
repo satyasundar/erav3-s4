@@ -17,9 +17,9 @@ import matplotlib.pyplot as plt
 import logging
 
 # Configure Flask and Werkzeug logging
-logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 app = Flask(__name__)
-app.logger.setLevel(logging.WARNING)
+app.logger.setLevel(logging.INFO)
 
 # Disable other loggers
 logging.getLogger('PIL').setLevel(logging.WARNING)
@@ -237,4 +237,4 @@ def get_predictions(model_name):
         })
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=False) 
